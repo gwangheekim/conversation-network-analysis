@@ -1,0 +1,26 @@
+Package: nbamen
+Type: Package
+Title: AMEN Model for Count Data with Negative Binomial Distribution
+Version: 0.1.0
+Date: 2025-09-04
+Authors@R: c(person("Gwanghee", "Kim",
+                    role = c("aut","cre"),
+                    email = "musagh08@yonsei.ac.kr"))
+Maintainer: Gwanghee Kim <musagh08@yonsei.ac.kr>
+Description: Implements Additive and Multiplicative Effects Network (AMEN) models for count data 
+    using negative binomial distribution with MCMC algorithms. The package provides functions for 
+    fitting network models with additive row/column effects and multiplicative latent factors, 
+    including support for overdispersion. 
+    Uses Procrustes matching for post-processing MCMC samples and provides comprehensive 
+    model diagnostics including BIC, WAIC, and DIC.
+License: GPL-3
+Imports: Rcpp (>= 1.0.5), MCMCpack, utils
+LinkingTo: Rcpp, RcppArmadillo
+Encoding: UTF-8
+RoxygenNote: 7.3.2
+Suggests: knitr, testthat
+Depends: R (>= 4.0.0)
+LazyData: true
+NeedsCompilation: yes
+Packaged: 2025-09-25 09:21:22 UTC; gwangheekim
+Author: Gwanghee Kim [aut, cre]

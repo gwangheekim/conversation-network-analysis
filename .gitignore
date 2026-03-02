@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# R compiled objects
+*.o
+*.so
+*.dll
+
+# IDE
+.vscode/
+.idea/
+*.Rproj.user/
