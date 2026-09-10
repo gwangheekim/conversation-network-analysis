@@ -9,6 +9,13 @@ using namespace arma;
 // [[Rcpp::depends(RcppArmadillo)]]
 // [[Rcpp::plugins(cpp11)]]
 
+// Half-normal(0, sigma_phi) prior on phi = 1/r, reparameterized to r via the change-of-variables Jacobian.
+inline double log_prior_r_via_phi_halfnormal(double r, double sigma_phi) {
+  double phi = 1.0 / r;
+  double log_const = 0.5 * std::log(2.0 / (arma::datum::pi * sigma_phi * sigma_phi));
+  return log_const - (phi * phi) / (2.0 * sigma_phi * sigma_phi) - 2.0 * std::log(r);
+}
+
 arma::vec get_slices2(const arma::cube& A, int row_index, int col_index) {
   int num_slices = A.n_slices;
   arma::vec result(num_slices);
@@ -32,8 +39,11 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
                                  const double pr_sd_z, const double pr_sd_w,
                                  const double pr_mean_gamma, const double pr_sd_gamma, const double jump_r, const double pr_mean_r, double pr_sd_r, const double jump_gamma,
                                  const double pr_a_r_sd, const double pr_b_r_sd, const bool hierarchical_r, const bool fix_r,
-                                 const bool fix, const double missing, const bool fixsd, const bool singledist, const bool vector, const bool covariate, const bool verbose){
-  
+                                 const bool fix, const double missing, const bool fixsd, const bool singledist, const bool vector, const bool covariate, const bool verbose,
+                                 const bool adapt = true, const int adapt_window = 50,
+                                 const double adapt_target_mh = 0.44, const double adapt_target_mala = 0.574,
+                                 const bool r_prior_phi = false){
+
   
   int i, j, k, i2, j2, k2, count = 0, accept = 0;
   double num, den, old_like_beta, new_like_beta, old_like_alpha, new_like_alpha, old_like_delta, new_like_delta;
@@ -112,7 +122,24 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
   
   rold = r_init;
   double new_like_r, old_like_r, accept_r = 0;
-  
+
+  // Adaptive MCMC (burn-in only): batch-tune jump sizes toward target acceptance rates (RWM 0.44, MALA 0.574).
+  const bool do_adapt = adapt && (nburn > 0) && (adapt_window > 0);
+  double jump_alpha_cur = jump_alpha, jump_beta_cur = jump_beta;
+  double jump_gamma_cur = jump_gamma, jump_r_cur = jump_r, jump_delta_cur = jump_delta;
+  double eps_z_cur = jump_z, eps_w_cur = jump_w;
+  int adapt_batch_idx = 0;
+  double batch_acc_alpha = 0, batch_n_alpha = 0, batch_acc_beta = 0, batch_n_beta = 0;
+  double batch_acc_gamma = 0, batch_n_gamma = 0, batch_acc_r = 0, batch_n_r = 0;
+  double batch_acc_delta = 0, batch_n_delta = 0;
+  double batch_acc_z = 0, batch_n_z = 0, batch_acc_w = 0, batch_n_w = 0;
+  auto adapt_step = [&](double &jump_cur, double batch_acc, double batch_n, double target, double delta) {
+    if (batch_n <= 0) return;
+    double rate = batch_acc / batch_n;
+    double log_jump = std::log(jump_cur) + ((rate > target) ? delta : -delta);
+    jump_cur = std::exp(log_jump);
+  };
+
   for(int iter = 0; iter < niter; iter++){
     if (iter % 5 == 0){
       Rcpp::checkUserInterrupt();
@@ -144,7 +171,7 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
     
     // alpha update    
     for(i = 0; i < N; i++){
-      newalpha(i) = oldalpha(i) + R::rnorm(0, jump_alpha);
+      newalpha(i) = oldalpha(i) + R::rnorm(0, jump_alpha_cur);
       old_like_alpha = new_like_alpha = 0.0;
       
       for(k = 0; k < P; k++){
@@ -169,12 +196,13 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
         oldalpha(i) = newalpha(i);
         accept_alpha(i) += 1.0 / (niter * 1.0);
       }
+      if (do_adapt && iter < nburn) { batch_n_alpha += 1; batch_acc_alpha += accept; }
     }
-    
-    
+
+
     // beta update
     for(k = 0; k < P; k++){
-      newbeta(k) = oldbeta(k) + R::rnorm(0, jump_beta);
+      newbeta(k) = oldbeta(k) + R::rnorm(0, jump_beta_cur);
       old_like_beta = new_like_beta = 0.0;
       
       for(i = 0; i < N; i++){
@@ -199,14 +227,15 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
         oldbeta(k) = newbeta(k);
         accept_beta(k) += 1.0 / (niter * 1.0);
       }
-    }   
-    
-    
+      if (do_adapt && iter < nburn) { batch_n_beta += 1; batch_acc_beta += accept; }
+    }
+
+
     // gamma update
     if(fix){
       oldgamma = 1.0;
     }else{
-      newgamma = R::rlnorm(std::log(oldgamma), jump_gamma);
+      newgamma = R::rlnorm(std::log(oldgamma), jump_gamma_cur);
       old_like_gamma = new_like_gamma = 0.0;
       for(i = 0; i < N; i++){
         for(k = 0; k < P; k++){
@@ -217,21 +246,22 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
         }
       }
       
-      num = new_like_gamma + R::dlnorm(oldgamma, std::log(newgamma), jump_gamma, 1) + R::dlnorm(newgamma, pr_mean_gamma, pr_sd_gamma, 1);
-      den = old_like_gamma + R::dlnorm(newgamma, std::log(oldgamma), jump_gamma, 1) + R::dlnorm(oldgamma, pr_mean_gamma, pr_sd_gamma, 1);
+      num = new_like_gamma + R::dlnorm(oldgamma, std::log(newgamma), jump_gamma_cur, 1) + R::dlnorm(newgamma, pr_mean_gamma, pr_sd_gamma, 1);
+      den = old_like_gamma + R::dlnorm(newgamma, std::log(oldgamma), jump_gamma_cur, 1) + R::dlnorm(oldgamma, pr_mean_gamma, pr_sd_gamma, 1);
       ratio = num - den;
-      
+
       if(ratio > 0.0) accept = 1;
       else{
         un = R::runif(0,1);
         if(std::log(un) < ratio) accept = 1;
         else accept = 0;
       }
-      
+
       if(accept == 1){
         oldgamma = newgamma;
         accept_gamma += 1.0 / (niter * 1.0);
       }
+      if (do_adapt && iter < nburn) { batch_n_gamma += 1; batch_acc_gamma += accept; }
     }
     
     
@@ -247,10 +277,10 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
     const int D = ndim, I = N, J = P;
     const double inv_sigma2_z = 1.0 / (pr_sd_z * pr_sd_z);
     const double inv_sigma2_w = 1.0 / (pr_sd_w * pr_sd_w);
-    const double eps_z = jump_z;
+    const double eps_z = eps_z_cur;
     const double half_eps2_z = 0.5 * eps_z * eps_z;
     const double inv_eps2_z = 1.0 / (eps_z * eps_z);
-    const double eps_w = jump_w;
+    const double eps_w = eps_w_cur;
     const double half_eps2_w = 0.5 * eps_w * eps_w;
     const double inv_eps2_w = 1.0 / (eps_w * eps_w);
     
@@ -350,6 +380,7 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
         oldz.row(i) = zi_prop;
         accept_z(i) += 1.0 / (niter * 1.0);
       }
+      if (do_adapt && iter < nburn) { batch_n_z += 1; batch_acc_z += accept; }
     }
     
     // ----------------------------------------------
@@ -448,14 +479,15 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
           oldw.row(k) = wk_prop;
           accept_w(k) += 1.0 / (niter * 1.0);
         }
+        if (do_adapt && iter < nburn) { batch_n_w += 1; batch_acc_w += accept; }
       }
     }
-    
+
     if(fix_r){
       rold = r_init;
     }else{
       // overdispersion parameter r update
-      rnew = R::rlnorm(std::log(rold), jump_r);
+      rnew = R::rlnorm(std::log(rold), jump_r_cur);
       old_like_r = new_like_r = 0.0;
       for(i = 0; i < N; i++){
         for(k = 0; k < P; k++){
@@ -466,22 +498,27 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
         }
       }
       
-      num = new_like_r + R::dlnorm(rold, std::log(rnew), jump_r, 1) + R::dlnorm(rnew, pr_mean_r, pr_sd_r, 1); // not symmetric 
-      den = old_like_r + R::dlnorm(rnew, std::log(rold), jump_r, 1) + R::dlnorm(rold, pr_mean_r, pr_sd_r, 1);
+      double log_prior_new_r = r_prior_phi ? log_prior_r_via_phi_halfnormal(rnew, pr_sd_r)
+                                            : R::dlnorm(rnew, pr_mean_r, pr_sd_r, 1);
+      double log_prior_old_r = r_prior_phi ? log_prior_r_via_phi_halfnormal(rold, pr_sd_r)
+                                            : R::dlnorm(rold, pr_mean_r, pr_sd_r, 1);
+      num = new_like_r + R::dlnorm(rold, std::log(rnew), jump_r_cur, 1) + log_prior_new_r; // proposal term stays log-normal RW; only the prior term switches
+      den = old_like_r + R::dlnorm(rnew, std::log(rold), jump_r_cur, 1) + log_prior_old_r;
       ratio = num - den;
-      
+
       if(ratio > 0.0) accept = 1;
       else{
         un = R::runif(0,1);
         if(std::log(un) < ratio) accept = 1;
         else accept = 0;
       }
-      
+
       if(accept == 1){
         rold = rnew;
         accept_r += 1.0 / (niter * 1.0);
       }
-      
+      if (do_adapt && iter < nburn) { batch_n_r += 1; batch_acc_r += accept; }
+
       // pr_sd_r hierarchical update
       if(hierarchical_r){
         // pr_sd_r^2 ~ Inverse-Gamma(pr_a_r_sd, pr_b_r_sd)
@@ -497,8 +534,8 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
     if(covariate){
       for(j = 0; j < K; j++){
         old_like_delta = new_like_delta = 0.0;
-        newdelta(j) = olddelta(j) + R::rnorm(0, jump_delta);
-        
+        newdelta(j) = olddelta(j) + R::rnorm(0, jump_delta_cur);
+
         for(i = 0; i < N; i++){
           for(k = 0; k < P; k++){
             if((i != k) & (data(i,k) != missing)){
@@ -523,7 +560,8 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
           olddelta(j) = newdelta(j);
           accept_delta(j) += 1.0 / (niter * 1.0);
         }
-        
+        if (do_adapt && iter < nburn) { batch_n_delta += 1; batch_acc_delta += accept; }
+
       }
     }else{
       olddelta.fill(0);
@@ -614,7 +652,8 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
       }else{
         post += R::dlnorm(oldgamma, pr_mean_gamma, pr_sd_gamma, 1);
       }
-      post += R::dlnorm(rold, pr_mean_r, pr_sd_r, 1);
+      post += r_prior_phi ? log_prior_r_via_phi_halfnormal(rold, pr_sd_r)
+                           : R::dlnorm(rold, pr_mean_r, pr_sd_r, 1);
       
       for(i = 0; i < N; i++)
         for(j = 0; j < ndim; j++) post += R::dnorm4(oldz(i,j),pr_mean_z,pr_sd_z,1);
@@ -636,7 +675,24 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
       sample_post(count) = post;
       count++;
     } // burn, thin
-    
+
+    if (do_adapt && iter < nburn && ((iter + 1) % adapt_window == 0)) {
+      adapt_batch_idx++;
+      double delta = std::min(0.05, 1.0 / std::sqrt((double)adapt_batch_idx));
+      adapt_step(jump_alpha_cur, batch_acc_alpha, batch_n_alpha, adapt_target_mh, delta);
+      adapt_step(jump_beta_cur,  batch_acc_beta,  batch_n_beta,  adapt_target_mh, delta);
+      if (!fix)   adapt_step(jump_gamma_cur, batch_acc_gamma, batch_n_gamma, adapt_target_mh, delta);
+      if (!fix_r) adapt_step(jump_r_cur,     batch_acc_r,     batch_n_r,     adapt_target_mh, delta);
+      if (covariate) adapt_step(jump_delta_cur, batch_acc_delta, batch_n_delta, adapt_target_mh, delta);
+      adapt_step(eps_z_cur, batch_acc_z, batch_n_z, adapt_target_mala, delta);
+      if (!singledist) adapt_step(eps_w_cur, batch_acc_w, batch_n_w, adapt_target_mala, delta);
+
+      batch_acc_alpha = batch_n_alpha = 0; batch_acc_beta = batch_n_beta = 0;
+      batch_acc_gamma = batch_n_gamma = 0; batch_acc_r = batch_n_r = 0;
+      batch_acc_delta = batch_n_delta = 0;
+      batch_acc_z = batch_n_z = 0; batch_acc_w = batch_n_w = 0;
+    }
+
     if(verbose){
       int percent = 0;
       if(iter % nprint == 0){
@@ -671,7 +727,14 @@ Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const
   output["accept_gamma"] = accept_gamma;
   output["accept_r"] = accept_r;
   output["pointwise_loglik"] = samp_pointwise_loglik;
-  
+  output["final_jump_alpha"] = jump_alpha_cur;
+  output["final_jump_beta"] = jump_beta_cur;
+  output["final_jump_gamma"] = jump_gamma_cur;
+  output["final_jump_r"] = jump_r_cur;
+  output["final_jump_delta"] = jump_delta_cur;
+  output["final_jump_z"] = eps_z_cur;
+  output["final_jump_w"] = eps_w_cur;
+
   return(output);
   
 } // function end
@@ -703,7 +766,9 @@ Rcpp::List log_likelihood_count_cpp(arma::mat data, const int ndim, arma::mat be
   
   for(i = 0; i < nitem; i++){
     for(k = 0; k < nsample; k++){
-      log_likelihood += dnbinom_mu(data(k,i),r_est,exp(beta_est(i)+alpha_est(k)+gamma_est*interaction(k,i)),1);
+      if(i != k){
+        log_likelihood += dnbinom_mu(data(k,i),r_est,exp(beta_est(i)+alpha_est(k)+gamma_est*interaction(k,i)),1);
+      }
     }
   }
 
@@ -719,9 +784,11 @@ Rcpp::List calculate_waic_dic_procrustes_cpp(
   arma::mat alpha_samples,
   arma::vec gamma_samples,
   arma::vec r_samples,
-  arma::cube z_proc,        // [n_samples, n_persons, ndim]
-  arma::cube w_proc,        // [n_samples, n_items, ndim]
+  arma::cube z_proc,        // [n_samples, n_persons, ndim] -- raw per-draw z, used pointwise
+  arma::cube w_proc,        // [n_samples, n_items, ndim] -- raw per-draw w, used pointwise
   int ndim,
+  arma::mat z_mean_in,       // [n_persons, ndim] Procrustes-aligned posterior mean of z
+  arma::mat w_mean_in,       // [n_items, ndim] Procrustes-aligned posterior mean of w
   bool overdispersion = false,
   bool zeroinflate = false,
   int missing = -99,
@@ -755,12 +822,15 @@ Rcpp::List calculate_waic_dic_procrustes_cpp(
           double alpha_curr = alpha_samples(iter, i);
           double gamma_curr = gamma_samples(iter);
           double r_curr = r_samples(iter);
-          // Calculate inner product using Procrustes matched samples
           double inner_prod = 0.0;
-          for(int d = 0; d < ndim; d++) {
-            inner_prod += z_proc(iter, i, d) * w_proc(iter, j, d);
+          if (vector) {
+            for(int d = 0; d < ndim; d++) inner_prod += z_proc(iter, i, d) * w_proc(iter, j, d);
+          } else {
+            double sq = 0.0;
+            for(int d = 0; d < ndim; d++) { double diff = z_proc(iter, i, d) - w_proc(iter, j, d); sq += diff * diff; }
+            inner_prod = -std::sqrt(sq);
           }
-          
+
           // Calculate log-likelihood with proper parameterization
           if(overdispersion) {
             double mu = std::exp(beta_curr + alpha_curr + gamma_curr * inner_prod);
@@ -796,7 +866,7 @@ Rcpp::List calculate_waic_dic_procrustes_cpp(
       }
       
       if(valid_log_lik.n_elem > 1) {
-        double var_val = arma::var(valid_log_lik, 1);
+        double var_val = arma::var(valid_log_lik);
         if(std::isfinite(var_val)) {
           p_waic += var_val;
         }
@@ -806,13 +876,13 @@ Rcpp::List calculate_waic_dic_procrustes_cpp(
 
   double waic = -2.0 * lppd + 2.0 * p_waic;
 
-  // Calculate DIC using Procrustes matched posterior means
+  // Calculate DIC using the caller-supplied Procrustes-aligned posterior means.
   arma::vec beta_mean = arma::mean(beta_samples, 0).t();
   arma::vec alpha_mean = arma::mean(alpha_samples, 0).t();
   double gamma_mean = arma::mean(gamma_samples);
   double r_mean = arma::mean(r_samples);
-  arma::mat z_mean = arma::mean(z_proc, 0);  // [n_persons, ndim]
-  arma::mat w_mean = arma::mean(w_proc, 0);  // [n_items, ndim]
+  arma::mat z_mean = z_mean_in;  // [n_persons, ndim]
+  arma::mat w_mean = w_mean_in;  // [n_items, ndim]
 
   // Calculate deviance at posterior means
   double log_like_mean = 0.0;
@@ -820,10 +890,14 @@ Rcpp::List calculate_waic_dic_procrustes_cpp(
     for(int j = 0; j < n_items; j++) {
       if((i != j) && (data(i,j) != missing)) {
         double inner_prod = 0.0;
-        for(int d = 0; d < ndim; d++) {
-          inner_prod += z_mean(i, d) * w_mean(j, d);
+        if (vector) {
+          for(int d = 0; d < ndim; d++) inner_prod += z_mean(i, d) * w_mean(j, d);
+        } else {
+          double sq = 0.0;
+          for(int d = 0; d < ndim; d++) { double diff = z_mean(i, d) - w_mean(j, d); sq += diff * diff; }
+          inner_prod = -std::sqrt(sq);
         }
-        
+
         if (overdispersion) {
           double mu = std::exp(beta_mean(j) + alpha_mean(i) + gamma_mean * inner_prod);
           log_like_mean += R::dnbinom_mu(data(i,j), r_mean, mu, 1);
@@ -845,10 +919,14 @@ Rcpp::List calculate_waic_dic_procrustes_cpp(
       for(int j = 0; j < n_items; j++) {
         if((i != j) && (data(i,j) != missing)) {
           double inner_prod = 0.0;
-          for(int d = 0; d < ndim; d++) {
-            inner_prod += z_proc(iter, i, d) * w_proc(iter, j, d);
+          if (vector) {
+            for(int d = 0; d < ndim; d++) inner_prod += z_proc(iter, i, d) * w_proc(iter, j, d);
+          } else {
+            double sq = 0.0;
+            for(int d = 0; d < ndim; d++) { double diff = z_proc(iter, i, d) - w_proc(iter, j, d); sq += diff * diff; }
+            inner_prod = -std::sqrt(sq);
           }
-          
+
           if (overdispersion) {
             double mu = std::exp(beta_samples(iter, j) + alpha_samples(iter, i) + gamma_samples(iter) * inner_prod);
             log_like_iter += R::dnbinom_mu(data(i,j), r_samples(iter), mu, 1);

@@ -12,8 +12,8 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // amen_count_nb_cpp
-Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const int niter, const int nburn, const int nthin, const int nprint, const double jump_beta, const double jump_alpha, const double jump_z, const double jump_w, const double jump_delta, const double r_init, const double pr_mean_beta, double pr_sd_beta, double pr_a_beta, double pr_b_beta, const double pr_a_alpha, const double pr_b_alpha, const double pr_mean_alpha, double pr_sd_alpha, const double pr_mean_delta, double pr_sd_delta, const double pr_sd_z, const double pr_sd_w, const double pr_mean_gamma, const double pr_sd_gamma, const double jump_r, const double pr_mean_r, double pr_sd_r, const double jump_gamma, const double pr_a_r_sd, const double pr_b_r_sd, const bool hierarchical_r, const bool fix_r, const bool fix, const double missing, const bool fixsd, const bool singledist, const bool vector, const bool covariate, const bool verbose);
-RcppExport SEXP _nbamen_amen_count_nb_cpp(SEXP dataSEXP, SEXP XSEXP, SEXP ndimSEXP, SEXP niterSEXP, SEXP nburnSEXP, SEXP nthinSEXP, SEXP nprintSEXP, SEXP jump_betaSEXP, SEXP jump_alphaSEXP, SEXP jump_zSEXP, SEXP jump_wSEXP, SEXP jump_deltaSEXP, SEXP r_initSEXP, SEXP pr_mean_betaSEXP, SEXP pr_sd_betaSEXP, SEXP pr_a_betaSEXP, SEXP pr_b_betaSEXP, SEXP pr_a_alphaSEXP, SEXP pr_b_alphaSEXP, SEXP pr_mean_alphaSEXP, SEXP pr_sd_alphaSEXP, SEXP pr_mean_deltaSEXP, SEXP pr_sd_deltaSEXP, SEXP pr_sd_zSEXP, SEXP pr_sd_wSEXP, SEXP pr_mean_gammaSEXP, SEXP pr_sd_gammaSEXP, SEXP jump_rSEXP, SEXP pr_mean_rSEXP, SEXP pr_sd_rSEXP, SEXP jump_gammaSEXP, SEXP pr_a_r_sdSEXP, SEXP pr_b_r_sdSEXP, SEXP hierarchical_rSEXP, SEXP fix_rSEXP, SEXP fixSEXP, SEXP missingSEXP, SEXP fixsdSEXP, SEXP singledistSEXP, SEXP vectorSEXP, SEXP covariateSEXP, SEXP verboseSEXP) {
+Rcpp::List amen_count_nb_cpp(arma::mat data, arma::cube X, const int ndim, const int niter, const int nburn, const int nthin, const int nprint, const double jump_beta, const double jump_alpha, const double jump_z, const double jump_w, const double jump_delta, const double r_init, const double pr_mean_beta, double pr_sd_beta, double pr_a_beta, double pr_b_beta, const double pr_a_alpha, const double pr_b_alpha, const double pr_mean_alpha, double pr_sd_alpha, const double pr_mean_delta, double pr_sd_delta, const double pr_sd_z, const double pr_sd_w, const double pr_mean_gamma, const double pr_sd_gamma, const double jump_r, const double pr_mean_r, double pr_sd_r, const double jump_gamma, const double pr_a_r_sd, const double pr_b_r_sd, const bool hierarchical_r, const bool fix_r, const bool fix, const double missing, const bool fixsd, const bool singledist, const bool vector, const bool covariate, const bool verbose, const bool adapt, const int adapt_window, const double adapt_target_mh, const double adapt_target_mala, const bool r_prior_phi);
+RcppExport SEXP _nbamen_amen_count_nb_cpp(SEXP dataSEXP, SEXP XSEXP, SEXP ndimSEXP, SEXP niterSEXP, SEXP nburnSEXP, SEXP nthinSEXP, SEXP nprintSEXP, SEXP jump_betaSEXP, SEXP jump_alphaSEXP, SEXP jump_zSEXP, SEXP jump_wSEXP, SEXP jump_deltaSEXP, SEXP r_initSEXP, SEXP pr_mean_betaSEXP, SEXP pr_sd_betaSEXP, SEXP pr_a_betaSEXP, SEXP pr_b_betaSEXP, SEXP pr_a_alphaSEXP, SEXP pr_b_alphaSEXP, SEXP pr_mean_alphaSEXP, SEXP pr_sd_alphaSEXP, SEXP pr_mean_deltaSEXP, SEXP pr_sd_deltaSEXP, SEXP pr_sd_zSEXP, SEXP pr_sd_wSEXP, SEXP pr_mean_gammaSEXP, SEXP pr_sd_gammaSEXP, SEXP jump_rSEXP, SEXP pr_mean_rSEXP, SEXP pr_sd_rSEXP, SEXP jump_gammaSEXP, SEXP pr_a_r_sdSEXP, SEXP pr_b_r_sdSEXP, SEXP hierarchical_rSEXP, SEXP fix_rSEXP, SEXP fixSEXP, SEXP missingSEXP, SEXP fixsdSEXP, SEXP singledistSEXP, SEXP vectorSEXP, SEXP covariateSEXP, SEXP verboseSEXP, SEXP adaptSEXP, SEXP adapt_windowSEXP, SEXP adapt_target_mhSEXP, SEXP adapt_target_malaSEXP, SEXP r_prior_phiSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -59,7 +59,12 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const bool >::type vector(vectorSEXP);
     Rcpp::traits::input_parameter< const bool >::type covariate(covariateSEXP);
     Rcpp::traits::input_parameter< const bool >::type verbose(verboseSEXP);
-    rcpp_result_gen = Rcpp::wrap(amen_count_nb_cpp(data, X, ndim, niter, nburn, nthin, nprint, jump_beta, jump_alpha, jump_z, jump_w, jump_delta, r_init, pr_mean_beta, pr_sd_beta, pr_a_beta, pr_b_beta, pr_a_alpha, pr_b_alpha, pr_mean_alpha, pr_sd_alpha, pr_mean_delta, pr_sd_delta, pr_sd_z, pr_sd_w, pr_mean_gamma, pr_sd_gamma, jump_r, pr_mean_r, pr_sd_r, jump_gamma, pr_a_r_sd, pr_b_r_sd, hierarchical_r, fix_r, fix, missing, fixsd, singledist, vector, covariate, verbose));
+    Rcpp::traits::input_parameter< const bool >::type adapt(adaptSEXP);
+    Rcpp::traits::input_parameter< const int >::type adapt_window(adapt_windowSEXP);
+    Rcpp::traits::input_parameter< const double >::type adapt_target_mh(adapt_target_mhSEXP);
+    Rcpp::traits::input_parameter< const double >::type adapt_target_mala(adapt_target_malaSEXP);
+    Rcpp::traits::input_parameter< const bool >::type r_prior_phi(r_prior_phiSEXP);
+    rcpp_result_gen = Rcpp::wrap(amen_count_nb_cpp(data, X, ndim, niter, nburn, nthin, nprint, jump_beta, jump_alpha, jump_z, jump_w, jump_delta, r_init, pr_mean_beta, pr_sd_beta, pr_a_beta, pr_b_beta, pr_a_alpha, pr_b_alpha, pr_mean_alpha, pr_sd_alpha, pr_mean_delta, pr_sd_delta, pr_sd_z, pr_sd_w, pr_mean_gamma, pr_sd_gamma, jump_r, pr_mean_r, pr_sd_r, jump_gamma, pr_a_r_sd, pr_b_r_sd, hierarchical_r, fix_r, fix, missing, fixsd, singledist, vector, covariate, verbose, adapt, adapt_window, adapt_target_mh, adapt_target_mala, r_prior_phi));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -86,8 +91,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // calculate_waic_dic_procrustes_cpp
-Rcpp::List calculate_waic_dic_procrustes_cpp(arma::mat data, arma::mat beta_samples, arma::mat alpha_samples, arma::vec gamma_samples, arma::vec r_samples, arma::cube z_proc, arma::cube w_proc, int ndim, bool overdispersion, bool zeroinflate, int missing, bool vector);
-RcppExport SEXP _nbamen_calculate_waic_dic_procrustes_cpp(SEXP dataSEXP, SEXP beta_samplesSEXP, SEXP alpha_samplesSEXP, SEXP gamma_samplesSEXP, SEXP r_samplesSEXP, SEXP z_procSEXP, SEXP w_procSEXP, SEXP ndimSEXP, SEXP overdispersionSEXP, SEXP zeroinflateSEXP, SEXP missingSEXP, SEXP vectorSEXP) {
+Rcpp::List calculate_waic_dic_procrustes_cpp(arma::mat data, arma::mat beta_samples, arma::mat alpha_samples, arma::vec gamma_samples, arma::vec r_samples, arma::cube z_proc, arma::cube w_proc, int ndim, arma::mat z_mean_in, arma::mat w_mean_in, bool overdispersion, bool zeroinflate, int missing, bool vector);
+RcppExport SEXP _nbamen_calculate_waic_dic_procrustes_cpp(SEXP dataSEXP, SEXP beta_samplesSEXP, SEXP alpha_samplesSEXP, SEXP gamma_samplesSEXP, SEXP r_samplesSEXP, SEXP z_procSEXP, SEXP w_procSEXP, SEXP ndimSEXP, SEXP z_mean_inSEXP, SEXP w_mean_inSEXP, SEXP overdispersionSEXP, SEXP zeroinflateSEXP, SEXP missingSEXP, SEXP vectorSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -99,19 +104,21 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< arma::cube >::type z_proc(z_procSEXP);
     Rcpp::traits::input_parameter< arma::cube >::type w_proc(w_procSEXP);
     Rcpp::traits::input_parameter< int >::type ndim(ndimSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type z_mean_in(z_mean_inSEXP);
+    Rcpp::traits::input_parameter< arma::mat >::type w_mean_in(w_mean_inSEXP);
     Rcpp::traits::input_parameter< bool >::type overdispersion(overdispersionSEXP);
     Rcpp::traits::input_parameter< bool >::type zeroinflate(zeroinflateSEXP);
     Rcpp::traits::input_parameter< int >::type missing(missingSEXP);
     Rcpp::traits::input_parameter< bool >::type vector(vectorSEXP);
-    rcpp_result_gen = Rcpp::wrap(calculate_waic_dic_procrustes_cpp(data, beta_samples, alpha_samples, gamma_samples, r_samples, z_proc, w_proc, ndim, overdispersion, zeroinflate, missing, vector));
+    rcpp_result_gen = Rcpp::wrap(calculate_waic_dic_procrustes_cpp(data, beta_samples, alpha_samples, gamma_samples, r_samples, z_proc, w_proc, ndim, z_mean_in, w_mean_in, overdispersion, zeroinflate, missing, vector));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
-    {"_nbamen_amen_count_nb_cpp", (DL_FUNC) &_nbamen_amen_count_nb_cpp, 42},
+    {"_nbamen_amen_count_nb_cpp", (DL_FUNC) &_nbamen_amen_count_nb_cpp, 47},
     {"_nbamen_log_likelihood_count_cpp", (DL_FUNC) &_nbamen_log_likelihood_count_cpp, 12},
-    {"_nbamen_calculate_waic_dic_procrustes_cpp", (DL_FUNC) &_nbamen_calculate_waic_dic_procrustes_cpp, 12},
+    {"_nbamen_calculate_waic_dic_procrustes_cpp", (DL_FUNC) &_nbamen_calculate_waic_dic_procrustes_cpp, 14},
     {NULL, NULL, 0}
 };
 

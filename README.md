@@ -1,201 +1,152 @@
-# Constructing Reliable Social Networks from Conversational Data: An Ensemble Prompt Engineering Approach with Uncertainty Quantification
+# Constructing Reliable Social Networks from Conversational Data
 
-This repository contains the code and data accompanying the paper *"Constructing Reliable Social Networks from Conversational Data: An Ensemble Prompt Engineering Approach with Uncertainty Quantification"*.
+This repository contains the code and processed data accompanying the paper
+*Constructing Reliable Social Networks from Conversational Data: An Ensemble
+Prompt Engineering Approach with Uncertainty Quantification*.
 
-The project combines Python code for LLM-based dialogue classification with R code for network analysis using AMEN models and network mediation.
+Raw classroom transcripts are not included because of privacy and
+confidentiality restrictions. The retained model predictions are anonymized and
+exclude raw utterance text, model reasoning, and API credentials. Every student
+identifier has been replaced with a stable pseudonym `s01`-`s22` (teacher
+utterances are marked `T`); the pseudonyms are the node labels in the network
+matrices and the join key in `Data/scores.csv`.
 
-## Note on Data Availability
+## Repository structure
 
-Due to privacy and confidentiality constraints, the **raw transcript (DOCX) files** used in the original analysis are **not included** in this submission. The Python classification scripts (`llm.py`, `llm_api.py`) reference transcript directories as command-line arguments; users must supply their own data when running these scripts.
-
-The intermediate classification results are provided in `Code/Python/data/` with the raw utterance text removed to protect participant privacy. Similarly, human labeling data in `Code/Python/human+labeling/` has been anonymized — labeler identities are replaced with anonymous IDs (P1–P8) and utterance text has been removed, retaining only the classification labels and metadata necessary for validation.
-
-> **Note**: The `--transcript_dir` argument defaults to `./transcripts/`. Always specify your own transcript directory path when running these scripts.
-
-## Directory Structure
-
-```
-├── Code/
-│   ├── Python/                 # LLM-based dialogue classification
-│   │   ├── data/               # Intermediate LLM classification results (utterance text removed)
-│   │   └── human+labeling/     # Human labeler annotations (anonymized, utterance text removed)
-│   └── R/                      # Network analysis and mediation models
-├── Data/                       # Processed adjacency matrices and student scores
-├── Rpackage/                   # Custom R package for AMEN model
-└── README.md                   # This file
+```text
+Code/Python/            LLM classification and logit extraction
+Code/Python/talkmoves/  TalkMoves external-criterion evaluation
+Code/R/                 Main and Supplement network analyses
+Data/                   Final EXP/EOI networks and student scores
+Rpackage/               Source for the custom nbamen package
+Results/                Generated tables and figures
 ```
 
-## 1. Python Code (`Code/Python/`)
+## Python classification code
 
-The Python code handles dialogue data loading and classification using LLMs.
+Install the Python dependencies with:
 
-### Core Files:
+```bash
+python -m pip install -r requirements.txt
+```
 
-#### `llm.py`
-- **Purpose**: Dialogue classification using open-source LLM models
-- **Contents**: 
-  - Extracts dialogue from DOCX transcript files
-  - Applies prompt-based classification using transformers
-  - Supports various open-source models (e.g., Llama, Qwen)
-- **Usage**:
-  ```bash
-  python llm.py --model_id "[model name]" --output_csv "[output file name]" --transcript_dir "[data path]"
-  ```
+The primary scripts are:
 
-#### `llm_api.py`
-- **Purpose**: Dialogue classification using commercial LLM APIs
-- **Contents**:
-  - Same core Contents as `llm.py` but uses commercial APIs
-  - Supports OpenAI, Anthropic, and Google APIs
-  - Handles API rate limiting and error management
-- **Usage**:
-  ```bash
-  python llm_api.py --provider "[provider (google, openai, anthropic)]" --apikey_json "[apikey path]" --model_name "[model name]" --transcript_dir "[data path]" --output_csv "[output file name]" --sleep_sec [seconds]
-  ```
-  - `--sleep_sec`: Optional seconds to wait between API calls for rate-limit throttling (default: 0.0)
+- `Code/Python/main_analysis.py`: reconstructs the retained five-model
+  ensemble, reproduces main-text agreement and entropy results, and verifies
+  both submitted network matrices.
+- `Code/Python/supplement_analysis.py`: reproduces the human-validation
+  agreement tables and figures for the Supplement.
+- `Code/Python/llm.py`: classification with a local Transformers model.
+- `Code/Python/llm_api.py`: classification through OpenAI, Anthropic, or
+  Google APIs. Copy `apikey.json.template` to `apikey.json` and fill in the
+  `openai_api_key` / `anthropic_api_key` / `google_api_key` field for the
+  provider you pass to `--provider` (the `api_key` field is only for the
+  optional OpenRouter backend). `apikey.json` is git-ignored.
+- `Code/Python/llm_logit.py`: token-probability extraction from an existing
+  classification CSV containing model reasoning.
 
-#### `llm_logit.py`
-- **Purpose**: Extract model logits for uncertainty analysis
-- **Contents**:
-  - Computes logit values from open-source models
-  - Used for uncertainty quantification and model confidence analysis
-  - Provides detailed probability distributions for classifications
-- **Arguments**: `--input_csv` (path to a previous classification result CSV), `--model_id`, `--output_csv`
-- **Usage**:
-  ```bash
-  python llm_logit.py --input_csv "classifications.csv" --model_id "[model name]" --output_csv "classifications_with_logits.csv"
-  ```
+All three scripts provide their current arguments through `--help`. For
+example:
 
-### Validation and Preprocessing Notebooks:
+```bash
+python Code/Python/llm.py --help
+python Code/Python/llm_api.py --help
+python Code/Python/llm_logit.py --help
+```
 
-#### `validation.ipynb`
-- **Purpose**: Comprehensive validation and uncertainty analysis
-- **Contents**:
-  - Model performance metrics and accuracy evaluation
-  - Uncertainty analysis using model logits (when available)
-  - Comparison with human labeler annotations
-  - Cross-validation results between different LLM approaches
-  - Statistical validation of classification reliability
-- **Usage**: Open and run in Jupyter Notebook or JupyterLab
+The retained results can be reproduced without API access:
 
-#### `preprocess.ipynb`
-- **Purpose**: Data transformation for network analysis
-- **Contents**:
-  - Processes LLM classification outputs
-  - Prepares data format compatible with R network analysis
-  - Handles data cleaning and validation
-- **Usage**: Open and run in Jupyter Notebook or JupyterLab
+```bash
+python Code/Python/main_analysis.py
+python Code/Python/supplement_analysis.py
+python Code/Python/talkmoves/talkmoves_analysis.py
+```
 
-## 2. R Code (`Code/R/`)
+Users must supply their own DOCX transcript directory when running the
+classification scripts. The retained final five-model predictions and ensemble
+are provided under `Code/Python/data/`; anonymized human annotations are under
+`Code/Python/human+labeling/`. Optional vLLM and OpenRouter implementations are
+kept under `Code/Python/optional_backends/` and are not required for the retained
+analyses.
 
-The R code implements network analysis using AMEN models and network mediation.
+## TalkMoves external criterion
 
-> **Note**: R scripts assume the **repository root** as the working directory, e.g., `setwd("path/to/this/repo")`.
+`Code/Python/talkmoves/talkmoves_analysis.py` reproduces the *External Criterion
+Evaluation on TalkMoves* results (main text and Supplement): five-class and
+collapsed three-class performance of the five-model ensemble against the
+TalkMoves expert reference labels, and the accuracy gap between unanimous and
+split-vote items. It runs from the retained per-model predictions with no API
+access and writes to `Results/TalkMoves/`.
 
-### R Dependencies
+```bash
+python Code/Python/talkmoves/talkmoves_analysis.py
+```
+
+Inputs are under `Code/Python/data/talkmoves/`. TalkMoves \[Suresh et al., 2022]
+is redistributed there under CC BY-NC-SA 4.0; see `Code/Python/data/talkmoves/NOTICE`.
+Those files are not covered by this repository's `LICENSE`. See
+`Code/Python/talkmoves/README.md` for details.
+
+## R network analyses
+
+Run the R scripts from the repository root. Install the required packages with:
 
 ```r
-install.packages(c("ggplot2", "gridExtra", "dplyr", "plotly", "igraph",
-                   "ggrepel", "RColorBrewer", "knitr", "purrr", "tidyverse",
-                   "MCMCpack", "coda", "future", "furrr", "progressr",
-                   "future.apply", "tidyr"))
-# Install the custom nbamen package
-install.packages("./Rpackage/nbamen_0.1.0.tar.gz", repos = NULL, type="source")
+install.packages(c(
+  "coda", "dplyr", "future", "furrr", "ggplot2", "ggrepel",
+  "gridExtra", "htmlwidgets", "igraph", "MCMCpack", "plotly",
+  "purrr", "tidyr",
+  "Rcpp", "RcppArmadillo"          # build-time dependencies for nbamen
+))
+install.packages(
+  "Rpackage/nbamen_0.2.1.tar.gz",
+  repos = NULL,
+  type = "source"                  # needs a C++ toolchain
+)
 ```
 
-### Core Files:
+The scripts use eight parallel workers by default and perform full 100,000-
+iteration MCMC fits, so execution can require substantial time and memory.
 
-#### `main.R`
-- **Purpose**: Main analysis pipeline
-- **Contents**:
-  - Loads and preprocesses adjacency matrix data
-  - Fits AMEN models for both Explanation (EXP) and Elaboration of Ideas (EOI) networks
-  - Performs network mediation analysis
-  - Conducts sensitivity analysis
+### Main analysis
 
-#### Key Analysis Steps:
-1. **AMEN Model Fitting**: 
-   - Fits negative binomial AMEN models
-   - Uses multiple chains for robustness (10 runs each)
-   - Applies Procrustes matching for chain alignment
-2. **Network Mediation**: Computes Natural Direct Effects (NDE) and Natural Indirect Effects (NIE)
-3. **Sensitivity Analysis**: Posterior sampling for uncertainty quantification
-
-#### `utils.R`
-- Utility functions for data processing, model post-processing, and visualization
-
-## 3. R Package (`Rpackage/`)
-
-### `nbamen` Package
-- **Purpose**: Custom R package implementing AMEN models for count data with negative binomial distribution
-- **Key Features**:
-  - MCMC algorithms for network model estimation
-  - Comprehensive model diagnostics (BIC, WAIC, DIC)
-  - Procrustes matching for post-processing
-
-#### Installation:
-```r
-install.packages("./Rpackage/nbamen_0.1.0.tar.gz", repos = NULL, type="source")
-library(nbamen)
+```bash
+Rscript Code/R/main.R
 ```
 
-#### Main Function:
-- `amen_count_nb()`: Fits AMEN model with negative binomial distribution
+`main.R` reads `Data/Network_EXP.csv`, `Data/Network_EOI.csv`, and
+`Data/scores.csv`; computes the centrality tables; fits ten BIC-selected AMEN
+chains per network; verifies that `gamma = 1`; and calculates multichain network
+mediation. Tables, network figures, the EXP latent-position PNG, and interactive
+EOI latent-position HTML views are written under `Results/Main/`.
 
-## 4. Data (`Data/`)
+### Supplement analysis
 
-### Current Files:
-- **`Network_EOI.csv`**: Adjacency matrix for Engage other's idea network
-- **`Network_EXP.csv`**: Adjacency matrix for Explanation network  
-- **`scores.csv`**: Student math scores
+```bash
+Rscript Code/R/supplement.R
+```
 
-## 5. Intermediate Data (`Code/Python/data/` and `Code/Python/human+labeling/`)
+`supplement.R` independently performs the BIC dimension and dispersion-prior
+searches, fits ten selected chains per network, computes convergence diagnostics
+and mediation summaries, and evaluates all 18,000 retained posterior-position
+draws. Outputs are written under `Results/Supplement/`.
 
-These directories contain intermediate results from the LLM classification pipeline. Raw utterance text has been removed from all files to protect participant privacy.
+The scripts save final tables and figures, not the large fitted-model RDS
+objects. `Code/R/utils.R` contains the shared analysis and plotting functions.
 
-### `Code/Python/data/`
-Contains LLM classification output CSV files generated by `llm.py`, `llm_api.py`, and `llm_logit.py`. Each file includes classification labels, engagement levels, and reference information for each utterance. Logit files additionally contain token-level probability distributions used for uncertainty quantification.
+## Processed analysis inputs
 
-### `Code/Python/human+labeling/`
-Contains human labeler annotation data organized by anonymized labeler ID (`labeler_P1` through `labeler_P8`). Each labeler's directory includes CSV files with classification labels (matching the LLM classification categories) for the same set of dialogue sessions, used for inter-rater reliability analysis in `validation.ipynb`.
-
-## Execution Workflow
-
-### Complete Analysis Pipeline:
-
-1. **Dialogue Classification** (Python):
-   ```bash
-   # Using open-source model
-   python Code/Python/llm.py --model_id "meta-llama/Llama-3.1-8B-Instruct" --output_csv "classifications.csv" --transcript_dir "path/to/transcripts"
-   
-   # Or using API
-   python Code/Python/llm_api.py --provider "openai" --apikey_json "keys.json" --model_name "gpt-4.1" --transcript_dir "path/to/transcripts" --output_csv "classifications.csv"
-   ```
-
-2. **Logit Extraction** (Python, optional for open-source models):
-   ```bash
-   # Extract logits for uncertainty quantification 
-   python Code/Python/llm_logit.py --input_csv "classifications.csv" --model_id "meta-llama/Llama-3.1-8B-Instruct" --output_csv "classifications_with_logits.csv"
-   ```
-
-3. **Validation** (Python):
-   - Open and run `Code/Python/validation.ipynb` in Jupyter to:
-     - Evaluate LLM classification consistency
-     - Analyze uncertainty using logits (if available)
-     - Compare results with human labeler annotations
-
-4. **Data Preprocessing** (Python):
-   - Open and run `Code/Python/preprocess.ipynb` in Jupyter to convert validated classifications to adjacency matrices
-
-5. **Network Analysis** (R):
-   ```r
-   # Install package
-   install.packages("./Rpackage/nbamen_0.1.0.tar.gz", repos = NULL, type="source")
-   
-   # Execute main analysis code
-   # Run the code in Code/R/main.R step by step
-   ```
+- `Data/Network_EXP.csv`: directed weighted Explanation network.
+- `Data/Network_EOI.csv`: directed weighted Engage Others' Ideas network.
+- `Data/scores.csv`: one row per student. Columns: `csts` (pre-test / prior
+  achievement, also the treatment split at 350), `test_total2` (post-test
+  outcome), `class` (section id), `s_l_name` (student pseudonym, the join key),
+  `gender` (0/1 covariate).
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is distributed under the terms in `LICENSE`. The exception is
+`Code/Python/data/talkmoves/`, which contains files derived from the TalkMoves
+dataset and is redistributed under CC BY-NC-SA 4.0 as described in
+`Code/Python/data/talkmoves/NOTICE`.

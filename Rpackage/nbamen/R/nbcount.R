@@ -112,7 +112,9 @@ amen_count_nb = function(data, X, ndim = 2, niter = 15000, nburn = 2500, nthin =
                     pr_a_beta = 0.001, pr_b_beta = 0.001, pr_a_alpha = 0.001, pr_b_alpha = 0.001, pr_a_eta = 1, pr_b_eta = 1,
                     direct = TRUE, overdispersion = FALSE, zeroinflate = FALSE, fix = FALSE, fixsd = FALSE, missing = -99,
                     verbose = FALSE, single = FALSE, singledist = TRUE, vector = FALSE, test = FALSE, fix_r = FALSE,
-                    covariate = FALSE, hierarchical_r = FALSE, pr_a_r_sd = 0.001, pr_b_r_sd = 0.001, skip = FALSE) {
+                    covariate = FALSE, hierarchical_r = FALSE, pr_a_r_sd = 0.001, pr_b_r_sd = 0.001, skip = FALSE,
+                    adapt = TRUE, adapt_window = 50, adapt_target_mh = 0.44, adapt_target_mala = 0.574,
+                    r_prior_phi = FALSE, procrustes_dilation = FALSE) {
 
     if(is.data.frame(data)){
         cname = colnames(data)
@@ -132,7 +134,10 @@ amen_count_nb = function(data, X, ndim = 2, niter = 15000, nburn = 2500, nthin =
                                     pr_b_alpha=pr_b_alpha, pr_a_r_sd=pr_a_r_sd, pr_b_r_sd=pr_b_r_sd,
                                     fix = fix, fixsd = fixsd, missing = missing,
                                     singledist = singledist, hierarchical_r = hierarchical_r, fix_r = fix_r,
-                                    vector = vector, covariate = covariate, verbose=verbose)
+                                    vector = vector, covariate = covariate, verbose=verbose,
+                                    adapt = adapt, adapt_window = adapt_window,
+                                    adapt_target_mh = adapt_target_mh, adapt_target_mala = adapt_target_mala,
+                                    r_prior_phi = r_prior_phi)
 
     mcmc.inf = list(nburn=nburn, niter=niter, nthin=nthin)
     nsample = nrow(data)
@@ -150,17 +155,16 @@ amen_count_nb = function(data, X, ndim = 2, niter = 15000, nburn = 2500, nthin =
     pb = txtProgressBar(title = "progress bar", min = 0, max = nmcmc,
                         style = 3, width = 50)
 
+    # Stack z and w before Procrustes so both share one rotation
+    stack.star = rbind(z.star, w.star)
     for(iter in 1:nmcmc){
         z.iter = matrix(output$z[iter,,], ncol = dim(output$z)[3])
         w.iter = matrix(output$w[iter,,], ncol = dim(output$w)[3])
+        stack.iter = rbind(z.iter, w.iter)
 
-        if(iter != max.address){
-            z.proc[iter,,] = MCMCpack::procrustes(z.iter, z.star)$X.new
-            w.proc[iter,,] = MCMCpack::procrustes(w.iter, w.star)$X.new
-        } else {
-            z.proc[iter,,] = z.iter
-            w.proc[iter,,] = w.iter
-        }
+        stack.proc = MCMCpack::procrustes(stack.iter, stack.star, dilation = procrustes_dilation)$X.new
+        z.proc[iter,,] = stack.proc[1:nsample, , drop = FALSE]
+        w.proc[iter,,] = stack.proc[(nsample+1):(nsample+nitem), , drop = FALSE]
         setTxtProgressBar(pb, iter)
     }
 
@@ -190,34 +194,41 @@ amen_count_nb = function(data, X, ndim = 2, niter = 15000, nburn = 2500, nthin =
     }
     bic = -2 * log_like[[1]] + p * log(nsample * (nsample-1)) 
     
-    # Calculate wAIC and DIC
-    cat("\n\nCalculate wAIC and DIC\n")
+    # Calculate WAIC and DIC
+    cat("\n\nCalculate WAIC and DIC\n")
     waic_dic_result <- calculate_waic_dic_procrustes_cpp(
         data = as.matrix(data),
         beta_samples = output$beta,
         alpha_samples = output$alpha,
         gamma_samples = output$gamma,
         r_samples = output$r,
-        z_proc = z.proc,
-        w_proc = w.proc,
+        z_proc = output$z,
+        w_proc = output$w,
         ndim = ndim,
+        z_mean_in = z.est,
+        w_mean_in = w.est,
         overdispersion = overdispersion,
         zeroinflate = zeroinflate,
         missing = missing,
         vector = vector
     )
-
     waic <- waic_dic_result$waic
     dic <- waic_dic_result$dic
     lppd <- waic_dic_result$lppd
     p_waic <- waic_dic_result$p_waic
     p_d <- waic_dic_result$p_d
+    waic_pointwise_loglik <- waic_dic_result$pointwise_loglik
 
     result <- list(data = data,
             bic = bic,
             waic = waic,
             dic = dic,
             dic_pd = p_d,
+            dic_dhat = dic - 2 * p_d,
+            dic_dbar = dic - p_d,
+            waic_lppd = lppd,
+            waic_pwaic = p_waic,
+            waic_pointwise_loglik = waic_pointwise_loglik,
             lik = output$map,
             mcmc_inf = mcmc.inf,
             map_inf = map.inf,
@@ -248,7 +259,14 @@ amen_count_nb = function(data, X, ndim = 2, niter = 15000, nburn = 2500, nthin =
             accept_w       = output$accept_w,
             accept_z       = output$accept_z,
             accept_gamma   = output$accept_gamma,
-            accept_r       = output$accept_r)
+            accept_r       = output$accept_r,
+            final_jump_alpha = output$final_jump_alpha,
+            final_jump_beta  = output$final_jump_beta,
+            final_jump_gamma = output$final_jump_gamma,
+            final_jump_r     = output$final_jump_r,
+            final_jump_delta = output$final_jump_delta,
+            final_jump_z     = output$final_jump_z,
+            final_jump_w     = output$final_jump_w)
     
     return(result)
 }

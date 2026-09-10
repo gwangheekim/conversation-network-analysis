@@ -429,9 +429,38 @@ def calculate_token_probabilities_only(model, tokenizer, dialogue_info, utteranc
     classification_messages = make_classification_prompt_messages(dialogue_info, utterance_id_for_output, reasoning_text)
     
     try:
-        classification_prompt_for_model = tokenizer.apply_chat_template(
-            classification_messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
-        )
+        # Ladder IDENTICAL to the vLLM scorer's render_prompt so HF and vLLM sequence
+        # logprobs agree: the model's REAL chat template first on the raw messages
+        # (llama/qwen/phi keep a separate system role), then with the system MERGED into
+        # the first user turn (gemma & co. reject a system role). The manual per-family
+        # concat below is now only the LAST resort (was previously hit for gemma, which
+        # is what made HF diverge from vLLM).
+        _sys = "".join(m["content"] for m in classification_messages if m["role"] == "system")
+        _merged, _inj = [], False
+        for _m in classification_messages:
+            if _m["role"] == "system":
+                continue
+            if _m["role"] == "user" and not _inj and _sys:
+                _merged.append({"role": "user",
+                                "content": f"SYSTEM INSTRUCTIONS:\n{_sys}\n\nUSER TASK:\n{_m['content']}"})
+                _inj = True
+            else:
+                _merged.append(_m)
+        classification_prompt_for_model = None
+        for _msgs in (classification_messages, _merged):
+            for _ct in ({"enable_thinking": False}, {}):
+                try:
+                    classification_prompt_for_model = tokenizer.apply_chat_template(
+                        _msgs, tokenize=False, add_generation_prompt=True, **_ct)
+                    break
+                except TypeError:
+                    continue
+                except Exception:
+                    break
+            if classification_prompt_for_model is not None:
+                break
+        if classification_prompt_for_model is None:
+            raise RuntimeError("apply_chat_template failed for all variants")
         # No additional FINAL_CLASSIFICATION needed since it's already in the user prompt
 
     except Exception as e:
@@ -707,7 +736,16 @@ def process_dialogue_dataframe_with_existing_reasoning(df_with_reasoning, model,
                 "Engage Others Idea (LOW)": float('-inf'),
                 "Engage Others Idea (MEDIUM)": float('-inf'),
                 "Engage Others Idea (HIGH)": float('-inf'),
-                "Uncorrelated": 0.0  # Give highest logit to Uncorrelated for empty utterances
+                "Uncorrelated": 0.0,  # Give highest logit to Uncorrelated for empty utterances
+                # Keep token-level probs consistent with the sequence-level logits above
+                # so downstream (llm_uncertainty_analyzer_v6) doesn't read a spurious
+                # sequence-vs-token mismatch on empty-utterance rows.
+                "token_prob_explain_own_idea": 0.0,
+                "token_prob_engage_others_idea": 0.0,
+                "token_prob_uncorrelated": 1.0,
+                "token_prob_engage_low": 0.0,
+                "token_prob_engage_medium": 0.0,
+                "token_prob_engage_high": 0.0,
             }
         else:
             try:
@@ -850,7 +888,7 @@ if __name__ == '__main__':
         
         # Load model and tokenizer
         model, tokenizer = load_model_and_tokenizer(args.model_id)   
-        print(model.hf_device_map)
+        print(getattr(model, "hf_device_map", "n/a"))  # VLM wrappers (e.g. Gemma4ForConditionalGeneration) lack this attr
         
         if df_input.empty: 
             print("Input DataFrame is empty. Exiting."); 
@@ -921,7 +959,6 @@ def debug_next_token_probs(model, tokenizer, prefix_text, top_k=20):
         print(f"Top-{top_k} tokens after prefix (probabilities):")
         for tok, p in zip(topk_tokens, topk_probs):
             tok_clean = tok.replace('\u0120', '▁')  # visualise sentencepiece spaces if any
-            print(f"{tok_clean:\<15} : {p.item():.5f}")
+            print(f"{tok_clean:<15} : {p.item():.5f}")
         return list(zip(topk_tokens, topk_probs.tolist()))
-
 

@@ -565,7 +565,7 @@ def generate_text_classification(model, tokenizer, dialogue_info, utterance_id_f
             expected_prefix_fallback = f"{current_id_str} :"
             num_colons_fallback = cleaned_line_fallback.count(':')
 
-            if cleaned_line_fallback.startswith(expected_prefix_fallback) and num_colons_fallback == 4:
+            if cleaned_line_fallback.startswith(expected_prefix_fallback) and num_colons_fallback == 3:
                 final_output_line = cleaned_line_fallback
                 print(f"  [INFO] Found classification via fallback for ID {current_id_str}: '{final_output_line}' (Original raw line from LLM: '{line_raw_fallback}')")
                 found_in_fallback = True
@@ -754,7 +754,7 @@ if __name__ == '__main__':
 
     try:
         model, tokenizer = load_model_and_tokenizer(args.model_id)   
-        print(model.hf_device_map)
+        print(getattr(model, "hf_device_map", "n/a"))  # VLM wrappers (e.g. Gemma4ForConditionalGeneration) lack this attr
         opath = args.transcript_dir
         os.makedirs(opath, exist_ok=True)
         if not os.listdir(opath) and opath == "./test_transcripts/":

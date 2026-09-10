@@ -1,7 +1,8 @@
-make_multi_chain_med = function(model_list, q = c(0.025,0.975), rotation = F){
+make_multi_chain_med = function(model_list, scores = scores_AL_d,
+                                q = c(0.025,0.975), rotation = F){
   med_res = list()
-  for(i in 1:num_runs){
-    med_res[[i]] = make_med_res(model_list[[i]]$data, scores_AL_d,
+  for(i in seq_along(model_list)){
+    med_res[[i]] = make_med_res(model_list[[i]]$data, scores,
                                 model_list[[i]]$z_estimate,
                                 model_list[[i]]$w_estimate,
                                 q, print=F,interaction=T,
@@ -19,7 +20,7 @@ make_multi_chain_med = function(model_list, q = c(0.025,0.975), rotation = F){
   }
   
   row.names(med_res_a) = c("NIE","NDE","TE")
-  colnames(med_res_a) = c("Post.M","Post.SD","2.5%","97.5%","")
+  colnames(med_res_a) = c("Post.M","Post.SD","2.5%","97.5%","Sig.")
   
   for (i in 1:nrow(med_res_a)) {
     val1 = as.numeric(sub(" \\(.*\\)", "", med_res_a[i, 3]))
@@ -109,15 +110,19 @@ run_sd_r_experiment <- function(data_list, X,
                                 data_names = NULL,
                                 seed = 100,
                                 mcmc_settings = list(),
-                                parallel_workers = NULL,
-                                ALc = ALc) {
+                                parallel_workers = NULL) {
   
   if (!is.null(parallel_workers)) {
     max_cores <- parallel::detectCores()
+    if (is.na(max_cores)) max_cores <- parallel_workers
     actual_workers <- min(parallel_workers, max_cores)
     cat(sprintf("Setting up parallel processing with %d workers (max available: %d)\n",
                 actual_workers, max_cores))
-    plan(multisession, workers = actual_workers)
+    if (.Platform$OS.type == "windows") {
+      plan(multisession, workers = actual_workers)
+    } else {
+      plan(multicore, workers = actual_workers)
+    }
   } else {
     plan(sequential)
   }
@@ -153,10 +158,10 @@ run_sd_r_experiment <- function(data_list, X,
               nrow(experiment_grid), dim_fixed))
   
   run_single_experiment <- function(dataset_idx, sd_r, repeat_id) {
-    mu <- mean(data_list[[dataset_idx]][ALc > 0])
-    v  <- var(data_list[[dataset_idx]][ALc > 0])
-    r_init <- mu^2 / (v - mu)
-    
+    # nbamen prints one progress-bar update per retained draw. Suppress that
+    # worker-local console stream during large selection grids.
+    sink(if (.Platform$OS.type == "windows") "NUL" else "/dev/null")
+    on.exit(sink(), add = TRUE)
     per_run_settings <- modifyList(settings, list(pr_sd_r = sd_r))
     args <- c(
       list(
@@ -170,7 +175,7 @@ run_sd_r_experiment <- function(data_list, X,
     )
     
     tryCatch({
-      model_output <- do.call(lsirm1pl_count, args)
+      model_output <- do.call(nbamen::amen_count_nb, args)
       list(
         model_output = model_output,
         bic = model_output$bic,
@@ -246,53 +251,16 @@ run_sd_r_experiment <- function(data_list, X,
         )
         
         if (current_raw$status == "success") {
-          if (!is.null(reference_model_output) && i != reference_run_idx_in_group) {
-            tryCatch({
-              re_proc <- procrustes_mat(current_raw$model_output, reference_model_output)
-              model_data_for_waic <- if (!is.null(current_raw$model_output$data)) {
-                current_raw$model_output$data
-              } else {
-                data_list[[current_info$dataset_idx]]
-              }
-              
-              waic_dic_result <- calculate_waic_dic_procrustes_cpp(
-                data = as.matrix(model_data_for_waic),
-                beta_samples = current_raw$model_output$beta,
-                alpha_samples = current_raw$model_output$alpha,
-                gamma_samples = current_raw$model_output$gamma,
-                r_samples = current_raw$model_output$r,
-                z_proc = re_proc$z,
-                w_proc = re_proc$w,
-                ndim = ncol(re_proc$z_estimate),
-                overdispersion = settings$overdispersion,
-                zeroinflate = settings$zeroinflate,
-                missing = settings$missing,
-                vector = settings$vector
-              )
-              
-              final_metrics$bic <- current_raw$bic
-              final_metrics$waic <- waic_dic_result$waic
-              final_metrics$dic <- waic_dic_result$dic
-              final_metrics$log_likelihood <- current_raw$log_likelihood
-              final_metrics$error_message <- NA
-            }, error = function(e) {
-              warning(sprintf("Procrustes/WAIC/DIC recalculation error for %s - sd_r: %.3f, Repeat: %d: %s",
-                              data_names[current_info$dataset_idx],
-                              current_info$sd_r,
-                              current_info$repeat_id, e$message))
-              final_metrics$bic <- current_raw$bic
-              final_metrics$waic <- NA
-              final_metrics$dic <- NA
-              final_metrics$log_likelihood <- current_raw$log_likelihood
-              final_metrics$error_message <- paste("Procrustes processing error:", e$message)
-            })
-          } else {
-            final_metrics$bic <- current_raw$bic
-            final_metrics$waic <- current_raw$waic
-            final_metrics$dic <- current_raw$dic
-            final_metrics$log_likelihood <- current_raw$log_likelihood
-            final_metrics$error_message <- current_raw$error_message
-          }
+          # Each chain's own bic/waic/dic already comes from amen_count_nb()'s
+          # internal (stacked) Procrustes alignment of that chain's own draws.
+          # z_i^T w_j is invariant to rotating a chain's z/w jointly, so a
+          # chain's within-chain DIC/WAIC needs no cross-chain re-alignment
+          # against a "reference" chain before being averaged.
+          final_metrics$bic <- current_raw$bic
+          final_metrics$waic <- current_raw$waic
+          final_metrics$dic <- current_raw$dic
+          final_metrics$log_likelihood <- current_raw$log_likelihood
+          final_metrics$error_message <- current_raw$error_message
         } else {
           final_metrics$bic <- NA
           final_metrics$waic <- NA
@@ -333,16 +301,20 @@ run_dimension_experiment <- function(data_list, X,
                                      data_names = NULL,
                                      seed = 100,
                                      mcmc_settings = list(),
-                                     parallel_workers = NULL,
-                                     ALc = ALc) {  
+                                     parallel_workers = NULL) {  
   
   if(!is.null(parallel_workers)) {
     max_cores <- parallel::detectCores()
+    if (is.na(max_cores)) max_cores <- parallel_workers
     actual_workers <- min(parallel_workers, max_cores)
     
     cat(sprintf("Setting up parallel processing with %d workers (max available: %d)\n", 
                 actual_workers, max_cores))
-    plan(multisession, workers = actual_workers)
+    if (.Platform$OS.type == "windows") {
+      plan(multisession, workers = actual_workers)
+    } else {
+      plan(multicore, workers = actual_workers)
+    }
   } else {
     plan(sequential) 
   }
@@ -377,13 +349,13 @@ run_dimension_experiment <- function(data_list, X,
   cat(sprintf("Total experiments to run: %d\n", nrow(experiment_grid)))
   
   run_single_experiment <- function(dataset_idx, dim, repeat_id) {
-    mu = mean(data_list[[dataset_idx]][ALc>0])
-    v = var(data_list[[dataset_idx]][ALc>0])
-    r_init = mu^2 / (v - mu)
-    
+    # nbamen prints one progress-bar update per retained draw. Suppress that
+    # worker-local console stream during large selection grids.
+    sink(if (.Platform$OS.type == "windows") "NUL" else "/dev/null")
+    on.exit(sink(), add = TRUE)
     args <- c(list(data = data_list[[dataset_idx]], X = X, ndim = dim, pr_mean_r = log(1), r_init = 1), settings)
     result_list <- tryCatch({
-      model_output <- do.call(lsirm1pl_count, args)
+      model_output <- do.call(nbamen::amen_count_nb, args)
       list(
         model_output = model_output, 
         bic = model_output$bic,      
@@ -465,55 +437,16 @@ run_dimension_experiment <- function(data_list, X,
         )
         
         if (current_raw_output$status == "success") {
-          if (!is.null(reference_model_output) && i != reference_run_idx_in_group) {
-            
-            proc_result_try <- tryCatch({
-              re_proc <- procrustes_mat(current_raw_output$model_output, reference_model_output)
-              model_data_for_waic <- if (!is.null(current_raw_output$model_output$data)) {
-                current_raw_output$model_output$data
-              } else {
-                data_list[[current_run_info$dataset_idx]]
-              }
-              
-              waic_dic_result <- calculate_waic_dic_procrustes_cpp(
-                data = as.matrix(model_data_for_waic), 
-                beta_samples = current_raw_output$model_output$beta,
-                alpha_samples = current_raw_output$model_output$alpha,
-                gamma_samples = current_raw_output$model_output$gamma,
-                r_samples = current_raw_output$model_output$r,
-                z_proc = re_proc$z, # Procrustes aligned z (posterior samples)
-                w_proc = re_proc$w, # Procrustes aligned w (posterior samples)
-                ndim = ncol(re_proc$z_estimate), 
-                overdispersion = settings$overdispersion, 
-                zeroinflate = settings$zeroinflate,       
-                missing = settings$missing,
-                vector = settings$vector
-              )
-              
-              final_metrics_for_this_run$bic <- current_raw_output$bic
-              final_metrics_for_this_run$waic <- waic_dic_result$waic
-              final_metrics_for_this_run$dic <- waic_dic_result$dic
-              final_metrics_for_this_run$log_likelihood <- current_raw_output$log_likelihood
-              final_metrics_for_this_run$error_message <- NA 
-              
-            }, error = function(e) {
-              warning(sprintf("Procrustes/WAIC/DIC recalculation error for %s - Dimension: %d, Repeat: %d: %s", 
-                              data_names[current_run_info$dataset_idx], 
-                              current_run_info$dim, 
-                              current_run_info$repeat_id, e$message))
-              final_metrics_for_this_run$bic <- current_raw_output$bic 
-              final_metrics_for_this_run$waic <- NA 
-              final_metrics_for_this_run$dic <- NA
-              final_metrics_for_this_run$log_likelihood <- current_raw_output$log_likelihood
-              final_metrics_for_this_run$error_message <- paste("Procrustes processing error:", e$message)
-            })
-          } else {
-            final_metrics_for_this_run$bic <- current_raw_output$bic
-            final_metrics_for_this_run$waic <- current_raw_output$waic
-            final_metrics_for_this_run$dic <- current_raw_output$dic
-            final_metrics_for_this_run$log_likelihood <- current_raw_output$log_likelihood
-            final_metrics_for_this_run$error_message <- current_raw_output$error_message
-          }
+          # Each chain's own bic/waic/dic already comes from amen_count_nb()'s
+          # internal (stacked) Procrustes alignment of that chain's own draws.
+          # z_i^T w_j is invariant to rotating a chain's z/w jointly, so a
+          # chain's within-chain DIC/WAIC needs no cross-chain re-alignment
+          # against a "reference" chain before being averaged.
+          final_metrics_for_this_run$bic <- current_raw_output$bic
+          final_metrics_for_this_run$waic <- current_raw_output$waic
+          final_metrics_for_this_run$dic <- current_raw_output$dic
+          final_metrics_for_this_run$log_likelihood <- current_raw_output$log_likelihood
+          final_metrics_for_this_run$error_message <- current_raw_output$error_message
         } else {
           final_metrics_for_this_run$bic <- NA
           final_metrics_for_this_run$waic <- NA
@@ -560,17 +493,20 @@ procrustes_mat = function(output, reference){
   
   w.proc = array(0,dim=c(nmcmc,nitem,ndim))
   z.proc = array(0,dim=c(nmcmc,nsample,ndim))
-  
+
   pb <- txtProgressBar(title = "progress bar", min = 0, max = nmcmc,
                        style = 3, width = 50)
-  
+
+  # Stack z and w before Procrustes so both share one rotation (preserves z^T w)
+  stack.star = rbind(z.star, w.star)
   for(iter in 1:nmcmc){
     z.iter = output$z_raw[iter,,]
-    z.proc[iter,,] = procrustes(z.iter,z.star)$X.new
-    
     w.iter = output$w_raw[iter,,]
-    w.proc[iter,,] = procrustes(w.iter,w.star)$X.new
-    
+    stack.iter = rbind(z.iter, w.iter)
+    stack.proc = MCMCpack::procrustes(stack.iter, stack.star)$X.new
+    z.proc[iter,,] = stack.proc[1:nsample, , drop = FALSE]
+    w.proc[iter,,] = stack.proc[(nsample+1):(nsample+nitem), , drop = FALSE]
+
     setTxtProgressBar(pb, iter, label = paste(round(iter/nmcmc * 100, 0), "% done"))
   }
   
@@ -856,15 +792,15 @@ make_boxplot = function(model, param, N, data){
   
   p1 = ggplot(df, aes(x = Column, y = Value)) +
     geom_boxplot() + 
-    scale_y_continuous(limits = c(-6.5, 3.5), breaks = seq(-6, 4, by = 1)) +
-    scale_x_discrete(labels = sapply(paste0(param,"[", rev(colnames(AL_eoi_d)), "]"), function(x) parse(text = x))) +
+    scale_y_continuous(breaks = seq(-6, 4, by = 1)) +
+    scale_x_discrete(labels = sapply(paste0(param,"[", rev(colnames(data)), "]"), function(x) parse(text = x))) +
     geom_point(data = summary_df, aes(x = Column, y = Mean), color = "blue", size = 3) + 
     geom_errorbar(data = summary_df, aes(x = Column, y = Mean, ymin = Lower, ymax = Upper), width = 0.2, color = "red") +
     labs(x = "Parameters", y = parse(text=param)) + 
     theme(axis.text.y = element_text(size = 15, color = "black", face = "bold"),
           axis.text.x = element_text(size = 15, color = "black"),
           axis.title = element_text(size = 18, color = "black")) +
-    coord_flip()
+    coord_flip(ylim = c(-6.5, 3.5))
   
   return(p1)
 }
@@ -998,7 +934,8 @@ calc_bic = function(model, X, vector = T, fix = T, covariate = F, missing = -99)
   diag(data) = missing
   N = nrow(data)
   
-  p = 2*N + 2*N*2 + ifelse(model$overdispersion,1,0) + ifelse(model$gamma_estimate != 1,1,0) + ifelse(covariate, ncol(model$delta),0)
+  ndim = ncol(model$z_estimate)
+  p = 2*N + 2*N*ndim + ifelse(model$overdispersion,1,0) + ifelse(model$gamma_estimate != 1,1,0) + ifelse(covariate, ncol(model$delta),0)
   alpha.est = model$alpha_estimate
   beta.est = model$beta_estimate
   gamma.est = model$gamma_estimate
@@ -1193,4 +1130,3 @@ acceptance_tab = function(model){
   return(list(D1 = D1,
               D2 = D2))
 }
-

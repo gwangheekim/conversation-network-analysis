@@ -1,8 +1,8 @@
 Package: nbamen
 Type: Package
 Title: AMEN Model for Count Data with Negative Binomial Distribution
-Version: 0.1.0
-Date: 2025-09-04
+Version: 0.2.1
+Date: 2026-08-18
 Authors@R: c(person("Gwanghee", "Kim",
                     role = c("aut","cre"),
                     email = "musagh08@yonsei.ac.kr"))

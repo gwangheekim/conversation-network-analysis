@@ -10,7 +10,6 @@ import json
 import openai
 from openai import OpenAI
 import anthropic
-# import google.generativeai as genai
 from google import genai
 from google.genai import types
 
@@ -290,7 +289,7 @@ def generate_text_classification(provider, api_key, dialogue_info, utterance_id_
                     temperature=0,
                 )
                 
-                raw_response_content = getattr(response, "content", None)
+                raw_response_content = response.choices[0].message.content if response.choices else None
                 if raw_response_content is None:
                     # Fallback to string representation if content is None
                     full_model_response = str(response).strip()

@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# OpenRouter key for llm_api_open.py (never commit the real key, only apikey.json.template)
+Code/Python/apikey.json
+
 # Python
 __pycache__/
 *.pyc
@@ -16,3 +19,15 @@ __pycache__/
 .vscode/
 .idea/
 *.Rproj.user/
+
+# Webb uncertainty analysis brought in from Psychometrika (v6 outputs + analyzer).
+# Contains PII (real student names + utterance text) that the public release
+# intentionally excludes — keep LOCAL, never publish. Un-ignore individual .py
+# analyzer files if you later want to publish code (but never the *_metrics_v6.csv).
+uncertainty_analysis/
+
+# Recoverable local holding area for one-off revision helpers and pilot logs.
+.local_archive/
+
+# Generated analysis outputs (recreated by the analysis scripts)
+Results/
